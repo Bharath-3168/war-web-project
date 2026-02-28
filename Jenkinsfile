@@ -13,7 +13,7 @@ pipeline {
     }
 
     tools {
-        maven 'maven'
+        maven "maven"
     }
 
     stages {
@@ -21,7 +21,7 @@ pipeline {
             steps {
                 sh 'mvn clean package -DskipTests'
                 archiveArtifacts artifacts: 'target/*.war'
-                sh 'ls -l target/'
+            
             }
         }
 stage('SonarQube Analysis') {
