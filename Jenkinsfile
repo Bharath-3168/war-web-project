@@ -2,59 +2,77 @@ pipeline {
     agent any
 
     environment {
-        TOMCAT_SERVER = "http://13.233.110.8:8080/"
+        // Tomcat server info (IP only, no http:// or port here)
+        TOMCAT_SERVER = "13.233.110.8"  
         TOMCAT_USER = "ubuntu"
+
+        // Nexus repo info
         NEXUS_URL = "3.109.181.184:8081"
         NEXUS_REPOSITORY = "maven-releases"
         NEXUS_CREDENTIAL_ID = "nexus_creds"
-        SSH_KEY_PATH = "/var/lib/jenkins/.ssh/jenkins_key"
+
+        // SonarQube
         SONAR_HOST_URL = "http://65.0.32.205:9000"
-        SONAR_CREDENTIAL_ID = "sonar_creds"  // Replace with your SonarQube credential ID
+        SONAR_CREDENTIAL_ID = "sonar_creds"
     }
 
     tools {
-        maven "maven"
+        maven "maven"  // predefined Maven tool in Jenkins
+    }
+
+    options {
+        // Global timeout for entire pipeline (optional)
+        timeout(time: 30, unit: 'MINUTES')
     }
 
     stages {
-                stage('Build WAR') {
+
+        stage('Checkout SCM') {
+            steps {
+                git branch: 'main', 
+                    url: 'git@github.com:yourusername/your-repo.git', 
+                    credentialsId: 'github_ssh_key'
+            }
+        }
+
+        stage('Build WAR') {
+            options { timeout(time: 15, unit: 'MINUTES') }
             steps {
                 sh 'mvn clean package -DskipTests'
-                archiveArtifacts artifacts: '*/target/.war'
+                archiveArtifacts artifacts: 'target/*.war'
             }
         }
-stage('SonarQube Analysis') {
-    steps {
-        withSonarQubeEnv('SonarQube Server') {
-            withCredentials([
-                string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')
-            ]) {
-                sh '''
-                  mvn sonar:sonar \
-                  -Dsonar.projectKey=wwp \
-                  -Dsonar.projectName=wwp \
-                  -Dsonar.host.url=$SONAR_HOST_URL \
-                  -Dsonar.login=$SONAR_TOKEN
-                '''
-            }
-        }
-    }
-}
 
-       stage('Extract Version') {
+        stage('SonarQube Analysis') {
             steps {
-                script {
-                    env.ART_VERSION = sh(script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout", returnStdout: true).trim()
+                withSonarQubeEnv('SonarQube Server') {
+                    withCredentials([string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')]) {
+                        sh """
+                        mvn sonar:sonar \
+                          -Dsonar.projectKey=wwp \
+                          -Dsonar.projectName=wwp \
+                          -Dsonar.host.url=$SONAR_HOST_URL \
+                          -Dsonar.login=$SONAR_TOKEN
+                        """
+                    }
                 }
             }
         }
 
-           stage('Publish to Nexus') {
+        stage('Extract Version') {
             steps {
                 script {
-                    echo "⬆️ Uploading WAR to Nexus repository..."
+                    env.ART_VERSION = sh(script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout", returnStdout: true).trim()
+                    echo "WAR Version: ${env.ART_VERSION}"
+                }
+            }
+        }
+
+        stage('Publish to Nexus') {
+            steps {
+                script {
                     def warFile = sh(script: 'find target -name "*.war" -print -quit', returnStdout: true).trim()
-                    echo "Uploading file: ${warFile}"
+                    echo "Uploading WAR: ${warFile}"
 
                     nexusArtifactUploader(
                         nexusVersion: 'nexus3',
@@ -73,22 +91,22 @@ stage('SonarQube Analysis') {
                     )
                 }
             }
-        }     
-
-    stage('Deploy to Tomcat') {
-    steps {
-        script {
-            sh """
-            scp -o StrictHostKeyChecking=no target/*.war ubuntu@$TOMCAT_SERVER:/tmp/
-
-            ssh -o StrictHostKeyChecking=no ubuntu@$TOMCAT_SERVER '
-            sudo mv /tmp/*.war /opt/tomcat/webapps/wwp.war
-            sudo systemctl restart tomcat
-            '
-            """
         }
-    }
-}
+
+        stage('Deploy to Tomcat') {
+            options { timeout(time: 10, unit: 'MINUTES') }
+            steps {
+                script {
+                    sh """
+                    scp -o StrictHostKeyChecking=no target/*.war ${TOMCAT_USER}@${TOMCAT_SERVER}:/tmp/
+                    ssh -o StrictHostKeyChecking=no ${TOMCAT_USER}@${TOMCAT_SERVER} '
+                      sudo mv /tmp/*.war /opt/tomcat/webapps/wwp.war
+                      sudo systemctl restart tomcat
+                    '
+                    """
+                }
+            }
+        }
 
         stage('Display URLs') {
             steps {
@@ -108,7 +126,7 @@ stage('SonarQube Analysis') {
             echo '✅ Pipeline completed successfully!'
         }
         failure {
-            echo '❌ Pipeline failed. Check the logs for errors.'
+            echo '❌ Pipeline failed. Check logs for errors.'
         }
     }
 }
