@@ -3,16 +3,16 @@ pipeline {
 
     environment {
         // Tomcat server info (IP only, no http:// or port here)
-        TOMCAT_SERVER = "13.233.110.8"  
+        TOMCAT_SERVER = "43.205.241.205"  
         TOMCAT_USER = "ubuntu"
 
         // Nexus repo info
-        NEXUS_URL = "3.109.181.184:8081"
+        NEXUS_URL = "http://13.126.79.23:8081"
         NEXUS_REPOSITORY = "maven-releases"
         NEXUS_CREDENTIAL_ID = "nexus_creds"
 
         // SonarQube
-        SONAR_HOST_URL = "http://65.0.32.205:9000"
+        SONAR_HOST_URL = "http://13.232.215.56:9000"
         SONAR_CREDENTIAL_ID = "sonar_creds"
     }
 
