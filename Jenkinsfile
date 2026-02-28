@@ -1,60 +1,42 @@
 pipeline {
     agent any
 
-    environment {
-        // Tomcat server info (IP only, no http:// or port here)
-        TOMCAT_SERVER = "43.205.241.205"  
-        TOMCAT_USER = "ubuntu"
-
-        // Nexus repo info
-        NEXUS_URL = "http://13.126.79.23:8081"
-        NEXUS_REPOSITORY = "maven-releases"
-        NEXUS_CREDENTIAL_ID = "nexus_creds"
-
-        // SonarQube
-        SONAR_HOST_URL = "http://13.232.215.56:9000"
-        SONAR_CREDENTIAL_ID = "sonar_creds"
-    }
-
     tools {
-        maven "maven"  // predefined Maven tool in Jenkins
+        jdk 'JDK 17'
+        maven 'Maven 3.9.0'
     }
 
-    options {
-        // Global timeout for entire pipeline (optional)
-        timeout(time: 30, unit: 'MINUTES')
+    environment {
+        GIT_CREDENTIALS = '03d5190e-07d0-4f41-9ed2-6315b9b35004'
+        SONARQUBE_SERVER = 'SonarQube_Server'
+        NEXUS_REPO_ID = 'maven-releases'
+        NEXUS_CREDENTIALS = 'nexus_credentials_id'
+        TOMCAT_CREDENTIALS = 'tomcat_credentials_id'
+        TOMCAT_URL = 'http://43.205.241.205:8080'
+        APP_PATH = '/war-web-project'
     }
 
     stages {
-
         stage('Checkout SCM') {
             steps {
-                git branch: 'main', 
-                    url: 'git@github.com:Bharath-3168/war-web-project.git', 
-                    credentialsId: 'github_ssh_key'
+                git(
+                    url: 'https://github.com/Bharath-3168/war-web-project.git',
+                    branch: 'master',
+                    credentialsId: "${GIT_CREDENTIALS}"
+                )
             }
         }
 
         stage('Build WAR') {
-            options { timeout(time: 15, unit: 'MINUTES') }
             steps {
                 sh 'mvn clean package -DskipTests'
-                archiveArtifacts artifacts: 'target/*.war'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube Server') {
-                    withCredentials([string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                        mvn sonar:sonar \
-                          -Dsonar.projectKey=wwp \
-                          -Dsonar.projectName=wwp \
-                          -Dsonar.host.url=$SONAR_HOST_URL \
-                          -Dsonar.login=$SONAR_TOKEN
-                        """
-                    }
+                withSonarQubeEnv("${SONARQUBE_SERVER}") {
+                    sh 'mvn sonar:sonar'
                 }
             }
         }
@@ -62,71 +44,72 @@ pipeline {
         stage('Extract Version') {
             steps {
                 script {
-                    env.ART_VERSION = sh(script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout", returnStdout: true).trim()
-                    echo "WAR Version: ${env.ART_VERSION}"
+                    def pom = readMavenPom file: 'pom.xml'
+                    env.PROJECT_VERSION = pom.version
+                    echo "Project version: ${env.PROJECT_VERSION}"
                 }
             }
         }
 
         stage('Publish to Nexus') {
             steps {
-                script {
-                    def warFile = sh(script: 'find target -name "*.war" -print -quit', returnStdout: true).trim()
-                    echo "Uploading WAR: ${warFile}"
-
-                    nexusArtifactUploader(
-                        nexusVersion: 'nexus3',
-                        protocol: 'http',
-                        nexusUrl: "${NEXUS_URL}",
-                        groupId: 'koddas.web.war',
-                        version: "${ART_VERSION}",
-                        repository: "${NEXUS_REPOSITORY}",
-                        credentialsId: "${NEXUS_CREDENTIAL_ID}",
-                        artifacts: [[
-                            artifactId: 'wwp',
-                            classifier: '',
-                            file: warFile,
-                            type: 'war'
-                        ]]
-                    )
-                }
+                nexusArtifactUploader(
+                    nexusVersion: 'nexus3',
+                    protocol: 'http',
+                    nexusUrl: 'your-nexus-server',
+                    repository: "${NEXUS_REPO_ID}",
+                    credentialsId: "${NEXUS_CREDENTIALS}",
+                    groupId: 'com.example',
+                    version: "${env.PROJECT_VERSION}",
+                    artifactId: 'war-web-project',
+                    packaging: 'war',
+                    file: 'target/war-web-project.war'
+                )
             }
         }
 
-        stage('Deploy to Tomcat') {
-            options { timeout(time: 10, unit: 'MINUTES') }
+        stage('Deploy to Tomcat with Rollback') {
             steps {
                 script {
+                    echo "Backing up current WAR (if exists)..."
                     sh """
-                    scp -o StrictHostKeyChecking=no target/*.war ${TOMCAT_USER}@${TOMCAT_SERVER}:/tmp/
-                    ssh -o StrictHostKeyChecking=no ${TOMCAT_USER}@${TOMCAT_SERVER} '
-                      sudo mv /tmp/*.war /opt/tomcat/webapps/wwp.war
-                      sudo systemctl restart tomcat
-                    '
+                    curl -u \${TOMCAT_CREDENTIALS_USR}:\${TOMCAT_CREDENTIALS_PSW} -O ${TOMCAT_URL}${APP_PATH}.war || true
+                    mv ${APP_PATH}.war ${APP_PATH}_backup.war || true
                     """
+
+                    try {
+                        echo "Deploying new WAR..."
+                        deploy adapters: [tomcat9(credentialsId: "${TOMCAT_CREDENTIALS}", path: "${APP_PATH}", url: "${TOMCAT_URL}")],
+                               contextPath: "${APP_PATH}",
+                               war: 'target/war-web-project.war'
+                    } catch (err) {
+                        echo "Deployment failed! Rolling back..."
+                        sh """
+                        if [ -f ${APP_PATH}_backup.war ]; then
+                            deploy adapters: [tomcat9(credentialsId: "${TOMCAT_CREDENTIALS}", path: "${APP_PATH}", url: "${TOMCAT_URL}")],
+                                   contextPath: "${APP_PATH}",
+                                   war: "${APP_PATH}_backup.war"
+                        fi
+                        """
+                        error "Deployment failed and rollback executed."
+                    }
                 }
             }
         }
 
         stage('Display URLs') {
             steps {
-                script {
-                    def appUrl = "http://${TOMCAT_SERVER}:8080/wwp-${ART_VERSION}"
-                    def nexusUrl = "http://${NEXUS_URL}/repository/${NEXUS_REPOSITORY}/koddas/web/war/wwp/${ART_VERSION}/wwp-${ART_VERSION}.war"
-                    
-                    echo "🌐 Application URL: ${appUrl}"
-                    echo "📦 Nexus Artifact URL: ${nexusUrl}"
-                }
+                echo "Application deployed at: ${TOMCAT_URL}${APP_PATH}"
             }
         }
     }
 
     post {
         success {
-            echo '✅ Pipeline completed successfully!'
+            echo "✅ Pipeline succeeded!"
         }
         failure {
-            echo '❌ Pipeline failed. Check logs for errors.'
+            echo "❌ Pipeline failed. Check logs for errors."
         }
     }
 }
