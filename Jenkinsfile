@@ -30,7 +30,7 @@ pipeline {
         stage('Checkout SCM') {
             steps {
                 git branch: 'main', 
-                    url: 'git@github.com:yourusername/your-repo.git', 
+                    url: 'git@github.com:Bharath-3168/war-web-project.git', 
                     credentialsId: 'github_ssh_key'
             }
         }
