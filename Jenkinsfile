@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        TOMCAT_SERVER = "43.205.241.205"
+        TOMCAT_SERVER = "http://43.205.241.205:8080/"
         TOMCAT_USER = "ubuntu"
         NEXUS_URL = "13.126.79.23:8081"
         NEXUS_REPOSITORY = "maven-releases"
@@ -20,24 +20,27 @@ pipeline {
                 stage('Build WAR') {
             steps {
                 sh 'mvn clean package -DskipTests'
-                archiveArtifacts artifacts: '**/target/*.war'
+                archiveArtifacts artifacts: '*/target/.war'
             }
         }
 stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube Server') {
-                    withCredentials([string(credentialsId: env.SONAR_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
-                        sh """
-                            mvn sonar:sonar \
-                                -Dsonar.projectKey=wwp \
-                                -Dsonar.host.url=${env.SONAR_HOST_URL} \
-                                -Dsonar.login=${SONAR_TOKEN} \
-                                -Dsonar.java.binaries=target/classes
-                        """
-                    }
-                }
+    steps {
+        withSonarQubeEnv('SonarQube Server') {
+            withCredentials([
+                string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')
+            ]) {
+                sh '''
+                  mvn sonar:sonar \
+                  -Dsonar.projectKey=wwp \
+                  -Dsonar.projectName=wwp \
+                  -Dsonar.host.url=$SONAR_HOST_URL \
+                  -Dsonar.login=$SONAR_TOKEN
+                '''
             }
+        }
+    }
 }
+
        stage('Extract Version') {
             steps {
                 script {
@@ -46,37 +49,46 @@ stage('SonarQube Analysis') {
             }
         }
 
-        stage('Publish to Nexus') {
+           stage('Publish to Nexus') {
             steps {
                 script {
+                    echo "⬆️ Uploading WAR to Nexus repository..."
                     def warFile = sh(script: 'find target -name "*.war" -print -quit', returnStdout: true).trim()
+                    echo "Uploading file: ${warFile}"
+
                     nexusArtifactUploader(
-                        nexusVersion: "nexus3",
-                        protocol: "http",
+                        nexusVersion: 'nexus3',
+                        protocol: 'http',
                         nexusUrl: "${NEXUS_URL}",
-                        groupId: "koddas.web.war",
-                        artifactId: "wwp",
+                        groupId: 'koddas.web.war',
                         version: "${ART_VERSION}",
                         repository: "${NEXUS_REPOSITORY}",
                         credentialsId: "${NEXUS_CREDENTIAL_ID}",
-                        artifacts: [[artifactId: "wwp", file: warFile, type: "war"]]
+                        artifacts: [[
+                            artifactId: 'wwp',
+                            classifier: '',
+                            file: warFile,
+                            type: 'war'
+                        ]]
                     )
                 }
             }
-        }
+        }     
 
-        stage('Deploy to Tomcat') {
-            steps {
-                script {
-                    def warFile = sh(script: 'find target -name "*.war" -print -quit', returnStdout: true).trim()
-                    sh """
-                        scp -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no ${warFile} ${TOMCAT_USER}@${TOMCAT_SERVER}:/tmp/
-                        ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no ${TOMCAT_USER}@${TOMCAT_SERVER} '
-                            sudo mv /tmp/*.war /opt/tomcat/webapps/ && sudo systemctl restart tomcat'
-                    """
-                }
-            }
+    stage('Deploy to Tomcat') {
+    steps {
+        script {
+            sh """
+            scp -o StrictHostKeyChecking=no target/*.war ubuntu@$TOMCAT_SERVER:/tmp/
+
+            ssh -o StrictHostKeyChecking=no ubuntu@$TOMCAT_SERVER '
+            sudo mv /tmp/*.war /opt/tomcat/webapps/wwp.war
+            sudo systemctl restart tomcat
+            '
+            """
         }
+    }
+}
 
         stage('Display URLs') {
             steps {
