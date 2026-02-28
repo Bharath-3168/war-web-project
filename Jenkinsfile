@@ -20,7 +20,7 @@ pipeline {
                 stage('Build WAR') {
             steps {
                 sh 'mvn clean package -DskipTests'
-                archiveArtifacts artifacts: '*/target/.war'
+                archiveArtifacts artifacts: 'target/*.war'
             }
         }
 stage('SonarQube Analysis') {
