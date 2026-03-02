@@ -31,7 +31,7 @@ stage('SonarQube Analysis') {
                 string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')
             ]) {
                 sh '''
-                  mvn sonar:sonar \
+                  mvn clean verify sonar:sonar \
                   -Dsonar.projectKey=wwp \
                   -Dsonar.projectName=wwp \
                   -Dsonar.host.url=$SONAR_HOST_URL \
