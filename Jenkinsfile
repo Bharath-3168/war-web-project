@@ -24,20 +24,16 @@ pipeline {
             
             }
         }
-stage('SonarQube Analysis') {
-    steps {
+node {
+    stage('Build & SonarQube') {
         withSonarQubeEnv('SonarQube') {
-            withCredentials([
-                string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')
-            ]) {
-                sh '''
-                  mvn clean verify sonar:sonar \
-                  -Dsonar.projectKey=wwp \
-                  -Dsonar.projectName=wwp \
-                  -Dsonar.host.url=$SONAR_HOST_URL \
-                  -Dsonar.login=$SONAR_TOKEN
-                '''
-            }
+            sh 'mvn clean verify sonar:sonar'
+        }
+    }
+
+    stage('Quality Gate') {
+        timeout(time: 5, unit: 'MINUTES') {
+            waitForQualityGate abortPipeline: true
         }
     }
 }
