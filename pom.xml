@@ -22,6 +22,19 @@
     </dependency>
   </dependencies>
 
+  <distributionManagement>
+    <repository>
+        <id>nexus-releases</id>
+        <name>Nexus Releases</name>
+        <url>http://YOUR_NEXUS_URL:8081/repository/maven-releases/</url>
+    </repository>
+    <snapshotRepository>
+        <id>nexus-snapshots</id>
+        <name>Nexus Snapshots</name>
+        <url>http://YOUR_NEXUS_URL:8081/repository/maven-snapshots/</url>
+    </snapshotRepository>
+</distributionManagement>
+
   <build>
     <plugins>
       <!-- Updated maven-compiler-plugin to use Java 17 -->
