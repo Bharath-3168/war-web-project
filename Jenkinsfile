@@ -24,33 +24,21 @@ pipeline {
             
             }
         }
-pipeline {
-    agent any
-
-    stages {
-        stage('Build') {
+stage('SonarQube Analysis') {
             steps {
-                sh 'mvn clean verify'
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh 'mvn sonar:sonar'
+                withSonarQubeEnv('SonarQube Server') {
+                    withCredentials([string(credentialsId: env.SONAR_CREDENTIAL_ID, variable: 'SONAR_TOKEN')]) {
+                        sh """
+                            mvn sonar:sonar \
+                                -Dsonar.projectKey=wwp \
+                                -Dsonar.host.url=${env.SONAR_HOST_URL} \
+                                -Dsonar.login=${SONAR_TOKEN} \
+                                -Dsonar.java.binaries=target/classes
+                        """
+                    }
                 }
             }
-        }
 
-        stage('Quality Gate') {
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-    }
-}
 
        stage('Extract Version') {
             steps {
