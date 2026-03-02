@@ -38,7 +38,7 @@ stage('SonarQube Analysis') {
                     }
                 }
             }
-
+}
 
        stage('Extract Version') {
             steps {
